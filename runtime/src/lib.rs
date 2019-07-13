@@ -14,7 +14,7 @@ use primitives::bytes;
 use primitives::{ed25519, sr25519, OpaqueMetadata};
 use runtime_primitives::{
 	ApplyResult, transaction_validity::TransactionValidity, generic, create_runtime_str,
-	traits::{self, NumberFor, BlakeTwo256, Block as BlockT, StaticLookup, Verify}
+	traits::{self, NumberFor, BlakeTwo256, Block as BlockT, StaticLookup, Convert, Verify}
 };
 use client::{
 	block_builder::api::{CheckInherentsResult, InherentData, self as block_builder_api},
@@ -56,7 +56,15 @@ pub type BlockNumber = u64;
 pub type Nonce = u64;
 
 /// Used for the module template in `./template.rs`
-mod template;
+mod erc20;
+
+pub struct BalanceToCurrencyHandler;
+
+impl Convert<u128, u128> for BalanceToCurrencyHandler {
+    fn convert(x: u128) -> u128 {
+        x
+    }
+}
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -170,7 +178,7 @@ impl balances::Trait for Runtime {
 	/// The type for recording an account's balance.
 	type Balance = u128;
 	/// What to do if an account's free balance gets zeroed.
-	type OnFreeBalanceZero = ();
+	type OnFreeBalanceZero = (Contract);
 	/// What to do if a new account is created.
 	type OnNewAccount = Indices;
 	/// The uniquitous event type.
@@ -181,6 +189,17 @@ impl balances::Trait for Runtime {
 	type TransferPayment = ();
 }
 
+impl contract::Trait for Runtime {
+    type Currency = Balances;
+    type Call = Call;
+    type Event = Event;
+    type Gas = u64;
+    type DetermineContractAddress = contract::SimpleAddressDeterminator<Runtime>;
+    type ComputeDispatchFee = contract::DefaultDispatchFeeComputor<Runtime>;
+    type TrieIdGenerator = contract::TrieIdFromParentCounter<Runtime>;
+    type GasPayment = ();
+}
+
 impl sudo::Trait for Runtime {
 	/// The uniquitous event type.
 	type Event = Event;
@@ -188,8 +207,9 @@ impl sudo::Trait for Runtime {
 }
 
 /// Used for the module template in `./template.rs`
-impl template::Trait for Runtime {
+impl erc20::Trait for Runtime {
 	type Event = Event;
+	type BalanceToCurrency = BalanceToCurrencyHandler;
 }
 
 construct_runtime!(
@@ -206,7 +226,8 @@ construct_runtime!(
 		Balances: balances,
 		Sudo: sudo,
 		// Used for the module template in `./template.rs`
-		TemplateModule: template::{Module, Call, Storage, Event<T>},
+		ERC20: erc20::{Module, Call, Storage, Event<T>},
+		Contract: contract::{Module, Call, Storage, Event<T>, Config<T>},
 	}
 );
 

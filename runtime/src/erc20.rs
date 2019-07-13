@@ -8,24 +8,30 @@
 /// For more guidance on Substrate modules, see the example module
 /// https://github.com/paritytech/substrate/blob/master/srml/example/src/lib.rs
 
-use support::{decl_module, decl_storage, decl_event, StorageValue, dispatch::Result};
+use support::{decl_module, decl_storage, decl_event, StorageMap, dispatch::Result};
 use system::ensure_signed;
+use rstd::prelude::*;
+use runtime_primitives::traits::{As, Convert, StaticLookup};
+//use core::convert::TryFrom;
 
 /// The module's configuration trait.
-pub trait Trait: system::Trait {
+pub trait Trait: system::Trait + balances::Trait + contract::Trait {
 	// TODO: Add other types and constants required configure this module.
-
 	/// The overarching event type.
 	type Event: From<Event<Self>> + Into<<Self as system::Trait>::Event>;
+
+	type BalanceToCurrency: Convert<<Self as balances::Trait>::Balance, contract::BalanceOf<Self>>;
 }
 
 /// This module's storage items.
 decl_storage! {
-	trait Store for Module<T: Trait> as TemplateModule {
+	trait Store for Module<T: Trait> as ERC20Storage {
 		// Just a dummy storage item. 
 		// Here we are declaring a StorageValue, `Something` as a Option<u32>
 		// `get(something)` is the default getter which returns either the stored `u32` or `None` if nothing stored
 		Something get(something): Option<u32>;
+		ERCS get(erc_owner): map(Vec<u8>) => T::AccountId;
+		WhitelistContract get(whitelist_contracts): map(T::AccountId) => bool;
 	}
 }
 
@@ -36,19 +42,27 @@ decl_module! {
 		// this is needed only if you are using events in your module
 		fn deposit_event<T>() = default;
 
-		// Just a dummy entry point.
-		// function that can be called by the external world as an extrinsics call
-		// takes a parameter of the type `AccountId`, stores it and emits an event
-		pub fn do_something(origin, something: u32) -> Result {
-			// TODO: You only need this if you want to check it was signed.
-			let who = ensure_signed(origin)?;
+		pub fn create_erc20(origin, ticker :Vec<u8>, owner: T::AccountId) -> Result {
+			let sender = ensure_signed(origin)?;
+			<ERCS<T>>::insert(ticker.clone(), owner.clone());
+			Self::deposit_event(RawEvent::ERC20Created(sender, owner, ticker));
+			Ok(())
+		}
 
-			// TODO: Code to execute when something calls this.
-			// For example: the following line stores the passed in u32 in the storage
-			<Something<T>>::put(something);
+		pub fn do_whitelist_contracts(origin, contract: T::AccountId, active: bool) -> Result {
+			<WhitelistContract<T>>::insert(contract, active);
+			Ok(())
+		}
 
-			// here we are raising the Something event
-			Self::deposit_event(RawEvent::SomethingStored(something, who));
+		pub fn call_to_contract(origin, value: u32, contractAddress: T::AccountId, data: Vec<u8>) -> Result {
+			//let sender = ensure_signed(origin)?;
+			<contract::Module<T>>::call(
+				origin,
+				T::Lookup::unlookup(contractAddress),
+				<T::BalanceToCurrency as Convert<T::Balance, contract::BalanceOf<T>>>::convert(<T::Balance as As<_>>::sa(0)),
+				<T::Gas as As<_>>::sa(10000),
+				data
+			)?;
 			Ok(())
 		}
 	}
@@ -60,6 +74,7 @@ decl_event!(
 		// Event `Something` is declared with a parameter of the type `u32` and `AccountId`
 		// To emit this event, we call the deposit funtion, from our runtime funtions
 		SomethingStored(u32, AccountId),
+		ERC20Created(AccountId, AccountId, Vec<u8>),
 	}
 );
 
